@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/exec"
 	"syscall"
 	"time"
 )
@@ -60,11 +61,13 @@ func execCmd(args []string) {
 	if len(args) < 1 {
 		log.Fatalf("At least one command line argument is required")
 	}
-	cmd := args[0]
-	if _, err := os.Stat(cmd); os.IsNotExist(err) {
-		log.Fatalf("%v does not exist. %v must be an absolute path.", cmd, cmd)
+	path := args[0]
+	cmd, err := exec.LookPath(path)
+	if err != nil {
+		log.Fatalf("Command not found: %v", path)
 	}
-	log.Printf("Call execve: %v", args)
+
+	log.Printf("Call execve with: %v", args)
 	// Does not return if succeeds
 	e := syscall.Exec(cmd, args, os.Environ())
 	if e != nil {
