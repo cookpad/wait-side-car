@@ -81,7 +81,6 @@ func sendGrpcReq(addr string, opts []grpc.DialOption) error {
 func sendReq(client *http.Client, req *http.Request) error {
 	res, err := client.Do(req)
 	if err != nil {
-		log.Printf("Failed to send the HTTP request: %v", err)
 		return err
 	}
 	defer res.Body.Close()
