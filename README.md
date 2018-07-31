@@ -31,3 +31,22 @@ For gRPC servers:
 ```
 wait-side-car --timeout=10000 --envoy-host-header=user-service --envoy-grpc-insecure-healthcheck-addr=envoy:8080 /usr/local/bin/my-app run-job --job-name=record-count-of-users
 ```
+
+## Development
+Required tools:
+
+- dep: https://github.com/golang/dep
+- goreleaser: https://github.com/goreleaser/goreleaser
+
+```
+dep ensure
+```
+
+Releasing:
+
+```
+git tag -s vx.y.z
+GITHUB_TOKEN=xxx goreleaser --rm-dist
+```
+
+Personal memo: I'm using [envchain](https://github.com/sorah/envchain) for the `GITHUB_TOKEN` value.
