@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"io"
@@ -11,6 +12,9 @@ import (
 	"os/exec"
 	"syscall"
 	"time"
+
+	pb "github.com/taiki45/wait-side-car/grpc_health_v1"
+	"google.golang.org/grpc"
 )
 
 func waitEnvoy(url string, hostHeader string) {
@@ -33,6 +37,45 @@ func waitEnvoy(url string, hostHeader string) {
 		log.Printf("Failed to wait envoy, retring: %v", err)
 		time.Sleep(300 * time.Millisecond)
 	}
+}
+
+func waitEnvoyGrpc(addr string, hostHeader string) {
+	opts := []grpc.DialOption{
+		grpc.WithInsecure(),
+		grpc.WithAuthority(hostHeader),
+	}
+
+	for {
+		err := sendGrpcReq(addr, opts)
+		if err == nil {
+			return // Succeed.
+		}
+
+		log.Printf("Failed to wait envoy, retring: %v", err)
+		time.Sleep(300 * time.Millisecond)
+	}
+}
+
+func sendGrpcReq(addr string, opts []grpc.DialOption) error {
+	conn, err := grpc.Dial(addr, opts...)
+	if err != nil {
+		return fmt.Errorf("Failed to make connection: %v", err)
+	}
+	client := pb.NewHealthClient(conn)
+
+	req := new(pb.HealthCheckRequest)
+
+	res, err := client.Check(context.Background(), req)
+	if err == nil {
+		if res.GetStatus() == pb.HealthCheckResponse_SERVING {
+			log.Printf("Got healthy: %v", res)
+			return nil
+		}
+
+		return fmt.Errorf("Got RPC response but unhealthy: %v", res)
+	}
+
+	return fmt.Errorf("Failed to check health: %v", err)
 }
 
 func sendReq(client *http.Client, req *http.Request) error {
@@ -78,20 +121,30 @@ func execCmd(args []string) {
 func main() {
 	// Timeout for overall operations.
 	timeoutPrt := flag.Int("timeout", 10000, "timeout msec")
-	healthcheckURLPtr := flag.String("envoy-healthcheck-url", "", "Healthcheck URL to access upstream service via Envoy (required)")
 	hostHeaderPtr := flag.String("envoy-host-header", "", "HTTP Host header which represents an upstream service (required)")
+
+	healthcheckURLPtr := flag.String("envoy-healthcheck-url", "", "Healthcheck URL to access upstream service via Envoy (option)")
+	grpcHealthcheckAddrPtr := flag.String("envoy-grpc-insecure-healthcheck-addr", "", "Pair of IP address and port for gRPC healthchecking (option)")
+
 	flag.Parse()
-	if *healthcheckURLPtr == "" {
-		log.Fatalf("envoy-healthcheck-url flag is required")
-	}
 	if *hostHeaderPtr == "" {
 		log.Fatalf("envoy-host-header flag is required")
 	}
+	if *healthcheckURLPtr == "" && *grpcHealthcheckAddrPtr == "" {
+		log.Fatalf("One of envoy-healthcheck-url or envoy-grpc-insecure-healthcheck-addr flag is required")
+	} else if *healthcheckURLPtr != "" && *grpcHealthcheckAddrPtr != "" {
+		log.Fatalf("Can not specified both envoy-healthcheck-url and envoy-grpc-insecure-healthcheck-addr flags")
+	}
+
 	timeout := time.Millisecond * time.Duration(*timeoutPrt)
 
 	c := make(chan int, 1)
 	go func() {
-		waitEnvoy(*healthcheckURLPtr, *hostHeaderPtr)
+		if *healthcheckURLPtr != "" {
+			waitEnvoy(*healthcheckURLPtr, *hostHeaderPtr)
+		} else if *grpcHealthcheckAddrPtr != "" {
+			waitEnvoyGrpc(*grpcHealthcheckAddrPtr, *hostHeaderPtr)
+		}
 		c <- 0
 	}()
 	select {
